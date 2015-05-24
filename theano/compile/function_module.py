@@ -161,6 +161,8 @@ def std_fgraph(input_specs, output_specs, accept_inplace=False):
     # If named nodes are replaced, keep the name
     for feature in std_fgraph.features:
         fgraph.attach_feature(feature())
+
+    # transfer updates to SymbolicOutput
     return fgraph, map(SymbolicOutput, updates)
 
 
@@ -339,7 +341,16 @@ class Function(object):
                         # there is no need to refeed the defaullt value.
                         assert not refeed
                     else:
+                        """
+                        Core of this for-loop initialize the value of the containers 
+                        by the value of defaults. Which equals to given the values of In()s
+                        instances to containers.
+                        |  |
+                        V  V
+                        """
                         c.value = value
+
+
                 c.required = required
                 c.implicit = input.implicit
                 c.provided = 0  # this is a count of how many times the input has been provided (reinitialized to 0 on __call__)
@@ -472,14 +483,35 @@ class Function(object):
         self.value[item] = value
 
     def __copy__(self):
+        """
+        三步：
+        1、用全新的storage linke一个func
+        2、判定是否为非空mutable，否则mutable。
+
+        mutable:
+            Bool (default: False if update is None, True if update is not None)
+
+        现在的__coopy__()：通过copy default初始化新的input_storage来link新的function，
+        Only if the input is immutable(without update) or is None(no default value)
+        does new_func share input_storage with orig_func.
+
+        Storage_map and ouput_storage is totoally separated. 
+        """
+
+
+        "这里取default第三项：对应input的value,这里相当于copy了storage"
         defaults = [default for _1, _2, default in self.defaults]
+        "用这些copy的storage去link一个新的function"
         cpy = self.maker.create(defaults, trustme=True)
+        "取出IN（），和两边的sotrage命名为here and there"
         for (input, _1, _2), here, there in zip(self.indices,
                                                 self.input_storage,
                                                 cpy.input_storage):
             if input.mutable and here is not None:
+                "对于非空mutable data,不share(multi thread),None就不用管"
                 there.data = copy.copy(here.data)
             else:
+                "share imutable memory。"
                 there.data = here.data
         return cpy
 
@@ -716,10 +748,14 @@ class Function(object):
 
 def _pickle_Function(f):
     # copy of the input storage list
+    "这里怎么就copy了, 无论是数值还是内存空间都是一样的？？"
+    "这里怎么就copy了的意思是，如果copy之后的list产生更改的话，两边就不一样了"
+    "否则还是一样的"
     ins = list(f.input_storage)
     input_storage = []
 
     for (input, indices, inputs), (required, refeed, default) in zip(f.indices, f.defaults):
+        "不管，InputKit已经没用了"
         if isinstance(input, SymbolicInputKit):
             li = len(indices)
             if not default:
@@ -727,13 +763,16 @@ def _pickle_Function(f):
             else:
                 input_storage.append(default)
             ins[:li] = []
+        "直接到这里，直接append，然后remove。这里的if。。else是历史遗留代码。 "    
         else:
+            # 不知道是什么，直接append，囧（＝＝
             input_storage.append(ins[0])
-            del ins[0]
+            del ins[0] #因为copy了，所以这里的del就不会del。但是……这一步append直接就是浪费嘛。kits都没了
 
     inputs_data = [x.data for x in f.input_storage]
 
     # HACK to detect aliased storage.
+    "What's alised storage."
     # This is here because aliased relationships are not [currently] preserved across the pickle operation
     if not (f.pickle_aliased_memory_strategy == 'ignore'):
         all_data = input_storage + inputs_data  # addition here means list append
@@ -749,6 +788,9 @@ def _pickle_Function(f):
                         else:
                             raise AliasedMemoryError(d_i, d_j)
     rval = (_constructor_Function, (f.maker, input_storage, inputs_data))
+    "Unpickle的时候程序会调用_constructor_Function并传入后面给的参数。"
+    "这里的_constructor_Function其实就是funckermaker的create"
+    "这里直接把f.maker存起来。( 甚至都不用序列化 )"
     return rval
 
 
@@ -770,6 +812,7 @@ copy_reg.pickle(Function, _pickle_Function)
 # FunctionMaker
 ###
 
+"这个又是什么鬼？跟 borrow 标签有关？"
 def insert_deepcopy(fgraph, wrapped_inputs, wrapped_outputs):
     """
     Insert deepcopy in the fgraph to break aliasing of outputs
@@ -1035,7 +1078,7 @@ class FunctionMaker(object):
         print('loaded graph_db from %s, size=%d' % (graph_db_file, len(graph_db)))
         found_graph = find_same_graph_in_db(graph_db)
         if found_graph:
-            self.fgraph = found_graph
+            xrange = found_graph
             optimizer_profile = None
         else:
             # this is a brand new graph, optimize it, save it to graph_db
@@ -1278,6 +1321,10 @@ class FunctionMaker(object):
                 input_storage_i = input_storage_i.container
 
             if isinstance(input_storage_i, gof.Container):
+                """
+                如果In.value是container的话，这里就是一个在计算中用到的sharedvariable。
+                然后container的storage就是一个初始化好的1-length-list.直接append
+                """
                 # If the default is a gof.Container, this means we want to
                 # share the same storage. This is done by appending
                 # input_storage_i.storage to input_storage_lists.
@@ -1286,8 +1333,10 @@ class FunctionMaker(object):
                 input_storage_lists.append(input_storage_i.storage)
 
                 storage = input_storage[i].storage[0]
-
             else:
+                """
+                否则的话就要自己初始化一个 1-length list 做 input storage
+                """
                 # Normal case: one new, independent storage unit
                 input_storage_lists.append([input_storage_i])
 
@@ -1452,7 +1501,11 @@ def orig_function(inputs, outputs, mode=None, accept_inplace=False,
     t1 = time.time()
     mode = theano.compile.mode.get_mode(mode)
 
+    "得到一堆In（）s， value一般是［None］，除非有default"
     inputs = map(convert_function_input, inputs)
+
+
+
     if outputs is not None:
         if isinstance(outputs, (list, tuple)):
             outputs = map(FunctionMaker.wrap_out, outputs)
@@ -1465,6 +1518,8 @@ def orig_function(inputs, outputs, mode=None, accept_inplace=False,
         raise Exception("We do not support the passing of multiple modes")
     else:
         Maker = getattr(mode, 'function_maker', FunctionMaker)
+
+
         fn = Maker(inputs,
                    outputs,
                    mode,

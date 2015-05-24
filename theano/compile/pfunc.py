@@ -404,13 +404,13 @@ def pfunc(params, outputs=None, mode=None, updates=None, givens=None,
     # off to compile.function
     # (There it will be cloned again, unnecessarily, because it doesn't know that we already
     # cloned it.)
-    #
+    
     # First, it clones the replacements named in the givens argument, and points each Var1 to
     # the clone of Var2.
     # Then it sets the inputs in the clone dictionary.
     # After these steps, we are assuming that the clone dictionary contains all the inputs to
     # the computation graph.
-    #
+    
     # Then it clones the outputs and the update expressions.  This rebuilds a computation graph
     # from the inputs and the givens.
     #

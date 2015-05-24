@@ -250,7 +250,7 @@ class Variable(Node):
 
     - :literal:`owner` either None (for graph roots) or the `Apply` instance of which `self` is an output,
 
-    - :literal:`index` the integer such that :literal:`owner.outputs[index] is this_variable` (ignored if `owner` is None)
+        - :literal:`index` the integer such that :literal:`owner.outputs[index] is this_variable` (ignored if `owner` is None)
 
     - :literal:`name` a string to use in pretty-printing and debugging.
 

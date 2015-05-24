@@ -446,8 +446,10 @@ def map_storage(fgraph, order, input_storage, output_storage):
 
     # input_storage is a list of data-containers for the inputs.
     if input_storage is None:
+        "                  VVV  这里做成list，也是要玩shallow copy的把戏，用list reference充当指针"
         input_storage = [[None] for input in fgraph.inputs]
     else:
+        "fgraph.inputs 是 user decalare 的 inputs，应该一致。"
         assert len(fgraph.inputs) == len(input_storage)
 
     storage_map = {}
@@ -467,6 +469,7 @@ def map_storage(fgraph, order, input_storage, output_storage):
         for r in node.inputs:
             if r not in storage_map:
                 assert isinstance(r, graph.Constant)
+                # ok,  这里用[r.data]这个list玩了shallow copy的把戏
                 storage_map[r] = [r.data]
         for r in node.outputs:
             storage_map.setdefault(r, [None])
@@ -637,10 +640,17 @@ class PerformLinker(LocalLinker):
         order = self.schedule(fgraph)
         no_recycling = self.no_recycling
 
-        input_storage, output_storage, storage_map = map_storage(fgraph, order, input_storage, output_storage)
+        , output_storage, storage_map = map_storage(fgraph, order, input_storage, output_storage)
 
         compute_map = {}
         for k in storage_map:
+        """The boolean indicates whether the variable's storage_map container 
+            contains a valid value (True)
+            or if it has not been computed yet (False)."""
+            
+        """ fn调用的时候就可以用computer_map看看输入是否已经被计算好。
+        如果计算好自己就可以抛出可控制的异常，这样比python 解释器抛出异常好多了"""
+
             compute_map[k] = [k.owner is None]
 
         thunks = []

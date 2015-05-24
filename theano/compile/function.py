@@ -1,4 +1,4 @@
-"""Define the `function` function
+ƒ"""Define the `function` function
 """
 __docformat__ = "restructuredtext en"
 

@@ -377,6 +377,12 @@ class FunctionGraph(utils.object2):
 
     ### prune ###
     def __prune_r__(self, variables, reason=None):
+        """
+        Given variables, remove ower nodes of these variabls in the graph
+
+        and remove variable from self.variable is none of its clients exists
+        (可能别人的owner用到它，所以他也要保留在variable list 之中)
+        """
         # Prunes the owners of the variables.
         for node in set(r.owner for r in variables if r.owner is not None):
             self.__prune__(node, reason)
@@ -385,6 +391,11 @@ class FunctionGraph(utils.object2):
                 self.variables.remove(r)
 
     def __prune__(self, apply_node, reason=None):
+        """
+        remove node and corrsponding variables.
+        if output of this node is used in else where or is output of this graph
+        it cannot be remove ?
+        """
         node = apply_node
         if node not in self.apply_nodes:
             raise Exception("%s does not belong to this FunctionGraph and cannot be pruned." % node)
@@ -399,6 +410,8 @@ class FunctionGraph(utils.object2):
                 return
         self.apply_nodes.remove(node)
         self.variables.difference_update(node.outputs)
+
+        """callback?? on_purne()?"""
         self.execute_callbacks('on_prune', node, reason)
 
         for i, input in enumerate(node.inputs):
@@ -406,17 +419,19 @@ class FunctionGraph(utils.object2):
         # self.__prune_r__(node.inputs)
 
     ### change input ###
+
     def change_input(self, node, i, new_r, reason=None):
         """WRITEME
-        Changes node.inputs[i] to new_r.
-
-        new_r.type == old_r.type must be True, where old_r is the
-        current value of node.inputs[i] which we want to replace.
-
+        remove the i th input of given node with new_r
+        the type of new variable must be same as the original variable
+        
         For each feature that has a 'on_change_input' method, calls:
           feature.on_change_input(function_graph, node, i, old_r, new_r, reason)
         """
         # TODO: ERROR HANDLING FOR LISTENERS (should it complete the change or revert it?)
+        """
+        如果variable是这个graph的output则直接和self.output比较。为什么？
+        """
         if node == 'output':
             r = self.outputs[i]
             if not r.type == new_r.type:
@@ -438,6 +453,10 @@ class FunctionGraph(utils.object2):
         if r is new_r:
             return
 
+        """
+        加new variable，remove old one and its clients. 
+        if need to purne(no old variable's clients in this graph), prune
+        """
         self.__import_r__([new_r], reason=reason)
         self.__add_clients__(new_r, [(node, i)])
         prune = self.__remove_clients__(r, [(node, i)], False)
@@ -496,10 +515,12 @@ class FunctionGraph(utils.object2):
                         % (tval_shape, new_tval_shape),
                         r, new_r, str(reason))
 
+        # 这里就是真正的replace 操作，这里可以看到client的作用了。
         for node, i in list(r.clients):  # copy the client list for iteration
             assert (node == 'output' and self.outputs[i] is r) or (node.inputs[i] is r)
             self.change_input(node, i, new_r, reason=reason)
 
+        "这个注释，问问fred。"
         # sometimes the following is triggered.  If you understand why, please explain to James.
         # He's curious... -JB20090331
         # if len(r.clients) != 0:
